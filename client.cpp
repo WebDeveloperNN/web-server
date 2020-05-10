@@ -14,120 +14,99 @@
 #include <algorithm>
 #include <string>
 
-char buffer[1024];
+#define STDIN 0
 
 int main(int argc, char const *argv[])
 {
-    int sock_client;
     struct sockaddr_in client_addr;
-
-    sock_client = socket(AF_INET, SOCK_STREAM, 0);
-    if(sock_client < 0)
-    {
-        // perror("socket");
-        // exit(1);
-    }
-
-
-
     client_addr.sin_family = AF_INET;
     client_addr.sin_port = htons(atoi(argv[2])); 
     inet_pton(AF_INET, argv[1], &client_addr.sin_addr);
 
-    // инициировать соединение на сокете
-    // Системный вызов connect () соединяет сокет, указанный дескриптором файла listen_socket_onServer, с адресом, указанным в server_addr. Аргумент sizeof server_addr указывает размер addr.  
+    int sock_client;
+    sock_client = socket(AF_INET, SOCK_STREAM, 0);
+    if(sock_client < 0)
+    {
+        perror("socket");
+        exit(1);
+    }
+
     std::cout << "=> Awaiting confirmation from the server..." << std::endl;   
+
     if(connect(sock_client, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0)
     {
         perror("connect");
         exit(2);
     }
-    if (recv(sock_client, buffer, sizeof(buffer), 0) < 0)
-    {
+
+    char *server_connected = new char[23];     
+    if (recv(sock_client, server_connected, 23, 0) < 0)    {
         // error("Error on reading");
     }
+    std::cout << server_connected;
 
-    fcntl(sock_client, F_SETFL, O_NONBLOCK);
+    fcntl(sock_client, F_SETFL, O_NONBLOCK);    
 
     while (1)
     {
+        char buf_write[1000];
+        int bytes_recv = 0;
 
+        
 
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(sock_client, &fds); 
+        FD_SET(STDIN, &fds); 
 
-
-
-
-
-
-        // fd_set readset; 
-        // FD_ZERO(&readset);
-        // FD_SET(sock_client, &readset);
-
-        // fd_set writefds; 
-        // FD_ZERO(&writefds);
-        // FD_SET(sock_client, &writefds);
-
-        // timeval timeout;
-        // timeout.tv_sec = 5;
-        // timeout.tv_usec = 0;
-
-        // if(select(sock_client+1, &readset, &writefds, NULL, &timeout) <= 0)
-        // {
-        //     perror("select");
-        //     exit(3);
-        // }
-
-        // if(FD_ISSET(sock_client, &writefds))
-        // {
-        //     std::cout << "> ";
-        //     std::cin.getline(buffer, sizeof(buffer));
-        //     send(sock_client, buffer, sizeof(buffer), 0);
-        // }
-
-        // if(FD_ISSET(sock_client, &readset))
-        // {
-        //     recv(sock_client, buffer, sizeof(buffer), 0);
-        //     printf("server : %s\n", buffer); 
-        // }
-
-
-
-
-
-        //select time = NULL
-
-
-
-
-
-
-        //working
-        std::cout << "> ";
-        std::cin.getline(buffer, sizeof(buffer));
-        if (send(sock_client, buffer, sizeof(buffer), 0) < 0)
+        int maxfd;
+        maxfd = (sock_client > STDIN) ? sock_client : STDIN;    
+        if (select(maxfd+1, &fds, NULL, NULL, NULL) <= 0)
         {
-            // error("Error on writting");
-        }   
+            perror("select");
+            exit(3);
+        }  
 
-        if (recv(sock_client, buffer, sizeof(buffer), 0) == 0)
-        {
-                // error("Error on reading");
+        if (FD_ISSET(STDIN, &fds)){
+            char *buf_send = new char();
+            int sizeof_buf_send = 0;
+
+            std::cin.getline(buf_write, 1000);
+
+            for (int i = 0; buf_write[i]; i++)
+            {
+                buf_send[i] = buf_write[i];
+                sizeof_buf_send++;                        
+            }  
+        
+            send(sock_client, buf_send, sizeof_buf_send, 0);
+
+            delete[] buf_send;
+            continue;
         }
-        printf("server : %s\n", buffer);  
-        
-        if (int i = strncmp("bye", buffer, 3) == 0)
-        {
-            break;
+
+        if (FD_ISSET(sock_client, &fds)){  
+
+            char *buf_recover = new char();  
+
+            if ((bytes_recv = recv(sock_client, buf_write, 1000, 0)) <= 0)
+            {
+                close(sock_client);
+                std::cout << "Server is closed" << std::endl;   
+                break;       
+            }     
+
+            for (int i = 0; i < bytes_recv; i++)
+            {
+                buf_recover[i] = buf_write[i];       
+            }   
+            buf_recover[bytes_recv] = '\0';
+            std::cout << "server : " << buf_recover << std::endl;
+            
+            delete[] buf_recover; 
+            continue;       
         }
-        
-        
-    }
-
-    close(sock_client);
-
+    }    
+    close(sock_client); 
     return 0;
 }
-    
-
-
-

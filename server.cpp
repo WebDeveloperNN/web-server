@@ -15,122 +15,62 @@
 
 int main(int argc, char const *argv[])
 {
-    if (argc < 2)
-    {
-        return 0;
-    }  
+    if (argc < 2) {return 0;}  
 
-    // Для хранения информации о сокете существует стандартная структура:
-    // struct sockaddr {
-    // sa_family_t sa_family;
-    // char sa_data[];
-    // };
-    // На практике, в зависимости от используемого сетевого протокола, используются другие структуры. Сокеты для использования с протоколом IP определены следующим образом:
-    // struct sockaddr_in {
-    // sa_family_t    sin_family;
-    // in_port_t      sin_port;
-    // struct in_addr sin_addr;
-    // unsigned char  sin_zero[8];
-    // };
-    // Структура in_addr определена следующим образом:
-    // struct in_addr {
-    // in_addr_t  s_addr;
-    // };
-    // Мы создаем нестандартную структуру для хранения информации о сокете. Мы создаем другую структуру, в зависимости от нашего сетевого протокола. Так как мы хотим создать сокет для использования с протоколом IP, мы используем структуру sockaddr_in
-    // Структура sockaddr_in описывает сокет для работы с протоколами IP.
     struct sockaddr_in server_addr;
-    // Заполняем поля структуры sockaddr_in
-    // Значение поля sin_family всегда равно AF_INET.
     server_addr.sin_family = AF_INET;
-    // Поле sin_port содержит номер порта который намерен занять процесс. Если значение этого поля равно нулю, то операционная система сама выделит свободный номер порта для сокета.
     server_addr.sin_port = htons(atoi(argv[2])); 
-    // Поле sin_addr содержит IP адрес к которому будет привязан сокет. Структура in_addr содержит поле s_addr. Этому полю можно присвоить 32х битное значение IP адреса. Для перевода адреса в целое число из строкового представления можно воспользоваться функцией inet_addr, которой в качестве аргумента передается указатель на строку содержащую IP адрес в виде четырех десятичных чисел разделенных точками. Можно, также, воспользоваться одной из следующих констант:
-    // INADDR_ANY
-    //     все адреса локального хоста (0.0.0.0); 
-    // INADDR_LOOPBACK
-    //     адрес loopback интерфейса (127.0.0.1); 
-    // INADDR_BROADCAST
-    //     широковещательный адрес (255.255.255.255). 
-    // server_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); 
-    // При присвоении значений номеру порта и адресу следует учитывать, что порядок следования байтов на разных архитектурах различен. При передаче данных по сети общепринятым является представление чисел в формате big-endian, в котором самый старший байт целого числа имеет наименьший адрес, а самый младший байт имеет наибольший адрес. Компьютеры построенные на архитектуре Intel x86 используют схему представления целых чисел little-endian, в которой наименьший адрес имеет самый младший байт, а наибольший адрес имеет самый старший байт. Для преобразования числа из той схемы которая используется на компьютере к той которая используется в сети, и наоборот, применяются функции:
-    // uint32_t htonl(uint32_t hostlong);
-    // uint16_t htons(uint16_t hostshort);
-    // uint32_t ntohl(uint32_t netlong);
-    // uint16_t ntohl(uint16_t netshort);
-    // Данная функция преобразует строку символов src в сетевой адрес (типа af), затем копирует полученную структуру с адресом в dst. 
     inet_pton(AF_INET, argv[1], &server_addr.sin_addr);
 
-    // int переменная для хранения дескрипторы слушающиего сокета
-    int listen_socket_onServer;
-    // Сокеты создаются при помощи системного вызова socket: 
-    listen_socket_onServer = socket(AF_INET, SOCK_STREAM, 0);
+    int listen_socket_onServer = socket(AF_INET, SOCK_STREAM, 0);
     if(listen_socket_onServer < 0)
     {
         perror("socket");
         exit(1);
     }
     
-    // Сокеты, которые мы до сих пор использовали, являлись блокирующими (blocking). Это название означает, что на время выполнения операции с таким сокетом ваша программа блокируется. Например, если вы вызвали recv, а данных на вашем конце соединения нет, то в ожидании их прихода ваша программа "засыпает". Аналогичная ситуация наблюдается, когда вы вызываете accept, а очередь запросов на соединение пуста. Это поведение можно изменить, используя функцию fcntl.
     fcntl(listen_socket_onServer, F_SETFL, O_NONBLOCK);
 
-    // привязать имя к сокету
-    // bind () назначает адрес, указанный в server_addr, сокету, указанному дескриптором файла listen_socket_onServer. 
-    // sizeof(server_addr) определяет размер в байтах структуры адреса, на которую указывает addr. Традиционно эта операция называется «присвоение имени сокету».
     if(bind(listen_socket_onServer, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
     {
         perror("bind");
         exit(2);
     }
 
-    // прослушивать соединения на сокете
-    // Функция listen () помечает сокет, на который ссылается listen_socket_onServer, как пассивный сокет, то есть сокет, который будет использоваться для приема входящих запросов на соединение с помощью accept.
     listen(listen_socket_onServer, 10);   
 
-
-    int connection_socket;
-    char buf[1024];
     int bytes_read;
-
+    int connection_socket;    
     std::set<int> clients;
     clients.clear();
 
     while(1)
-    {
-        // Заполняем множество сокетов
-        fd_set readset;
-        // очищает множество        
+    { 
+        // int sizeof_buf_send = 0;
+        int bytes_recv = 0;
+
+        fd_set readset;    
         FD_ZERO(&readset);
-        // добавляем дескриптор в множество 
         FD_SET(listen_socket_onServer, &readset);
 
-        // FD_SET будет содержать наиболеший дескриптор
         for(std::set<int>::iterator it = clients.begin(); it != clients.end(); it++) {
             FD_SET(*it, &readset);
-        }    
+        }     
 
-        // Задаём таймаут
-        timeval timeout;
-        timeout.tv_sec = 20;
-        timeout.tv_usec = 0;
-
-        // max_element() - Находит наибольший элемент в диапазоне [first, last). 
-        // max()         - Возвращает большее из двух значений. 
-        // Ждём события в одном из сокетов
         int mx = std::max(listen_socket_onServer, *max_element(clients.begin(), clients.end()));
         
-        if(select(mx+1, &readset, NULL, NULL, &timeout) <= 0)
+        if(select(mx+1, &readset, NULL, NULL, NULL) <= 0)
         {
             perror("select"); 
             exit(3);
         }
 
-        // Определяем тип события и выполняем соответствующие действия
         if(FD_ISSET(listen_socket_onServer, &readset))
-        {
-              // Поступил новый запрос на соединение, используем accept
-            // принять соединение на сокете
-            // Он извлекает первый запрос на соединение в очереди ожидающих соединений для прослушивающего сокета, sockfd, создает новый подключенный сокет и возвращает новый дескриптор файла, ссылающийся на этот сокет. Вновь созданный сокет не находится в состоянии прослушивания. Исходный сокет sockfd не затрагивается этим вызовом.
-            //  Если в очереди нет ожидающих соединений, а сокет не помечен как неблокирующий, accept () блокирует вызывающего до тех пор, пока не будет установлено соединение. Если сокет помечен как неблокирующий, и в очереди отсутствуют ожидающие соединения, метод accept () завершается с ошибкой EAGAIN или EWOULDBLOCK.
+        {     
+            char *buf_send = new char();
+            char *buf_write = new char[1000]; 
+            std::string info_connect = "=> Server connected...\n";
+            
             int connection_socket = accept(listen_socket_onServer, NULL, NULL);
             if(connection_socket < 0)
             {
@@ -139,73 +79,63 @@ int main(int argc, char const *argv[])
             }
             
             fcntl(connection_socket, F_SETFL, O_NONBLOCK);
+            
+            clients.insert(connection_socket); 
+          
+            for (int i = 0; info_connect[i]; i++)
+            {
+                buf_send[i] = info_connect[i]; 
+              
+            }
+            send(connection_socket, buf_send, 23, 0);
 
-            clients.insert(connection_socket);
-
-            strcpy(buf, "=> Server connected...\n");
-            send(connection_socket, buf, sizeof(buf), 0);
+            
             std::cout << "=> Connected with the client" << std::endl;
-            //  << clientCount << ", you are good to go..." 
-            // cout << "\n=> Enter # to end the connection\n" << endl;
-        }
 
+            delete [] buf_send;
+            delete [] buf_write;
+        }
+        
         for(std::set<int>::iterator it = clients.begin(); it != clients.end(); it++)
         {
-            if(FD_ISSET(*it, &readset))
-            {
-                // Поступили данные от клиента, читаем 
-                // получить сообщение из сокета
-                bytes_read = recv(*it, buf, 1024, 0);
+            char *buf_write = new char[1000];
+            char *buf_send = new char(); 
 
-                if(bytes_read <= 0)
+            if(FD_ISSET(*it, &readset))
+            {       
+                if((bytes_recv = recv(*it, buf_write, 1000, 0)) <= 0)
                 {
-                    // Соединение разорвано, удаляем сокет из множества
                     close(*it);
                     clients.erase(*it);
+                    std::cout << "=> Client disconnected" << std::endl;
+                    delete [] buf_send;
                     continue;
                 }
 
-                // Отправляем данные обратно клиенту
+                for (int i = 0; i < bytes_recv; i++)
+                {
+                    buf_send[i] = buf_write[i];
+                }              
+                buf_send[bytes_recv] = buf_write[bytes_recv];
+
                 for(std::set<int>::iterator it_inner = clients.begin(); it_inner != clients.end(); it_inner++) 
                 {
-                    send(*it_inner, buf, bytes_read, 0);
+                    send(*it_inner, buf_send, bytes_recv, 0);
                 }
 
-            }
+                delete [] buf_send;
+                delete [] buf_write;
+            }            
+            
         }
-    }
-
+        
+    }  
+    
+    
+    close(listen_socket_onServer);
 
     return 0;
 }
-
-
-
-
-// select () позволяет программе отслеживать несколько файловых дескрипторов, ожидая, пока один или несколько файловых дескрипторов станут «готовыми» для некоторого класса операций ввода-вывода (например, возможен ввод). Файловый дескриптор считается готовым, если возможно выполнить соответствующую операцию ввода-вывода без блокировки.
-// select () может отслеживать только те дескрипторы файлов, которые меньше FD_SETSIZE; poll (2) и epoll (7) не имеют этого ограничения.
-// int select(int n, fd_set *readfds, fd_set *writefds,
-// fd_set *exceptfds, struct timeval *timeout);
-// Функция select работает с тремя множествами дескрипторов, каждое из которых имеет тип fd_set. В множество readfds записываются дескрипторы сокетов, из которых нам требуется читать данные (слушающие сокеты добавляются в это же множество). Множество writefds должно содержать дескрипторы сокетов, в которые мы собираемся писать, а exceptfds - дескрипторы сокетов, которые нужно контролировать на возникновение ошибки. Если какое-то множество вас не интересуют, вы можете передать вместо указателя на него NULL. Что касается других параметров, в n нужно записать максимальное значение дескриптора по всем множествам плюс единица, а в timeout - величину таймаута. Структура timeval имеет следующий формат.
-// struct timeval {
-//     int tv_sec;     // секунды
-//     int tv_usec;    // микросекунды
-// };
-// Теперь займёмся множествами дескрипторов. Для работы с ними предусмотрены функции FD_XXX
-// их использование полностью скрывает от нас детали внутреннего устройства fd_set. Рассмотрим их назначение.
-// FD_ZERO(fd_set *set) - очищает множество set
-// FD_SET(int fd, fd_set *set) - добавляет дескриптор fd в множество set
-// FD_CLR(int fd, fd_set *set) - удаляет дескриптор fd из множества set
-// FD_ISSET(int fd, fd_set *set) - проверяет, содержится ли дескриптор fd в множестве set
-// Если хотя бы один сокет готов к выполнению заданной операции, select возвращает ненулевое значение, а все дескрипторы, которые привели к "срабатыванию" функции, записываются в соответствующие множества. Это позволяет нам проанализировать содержащиеся в множествах дескрипторы и выполнить над ними необходимые действия. Если сработал таймаут, select возвращает ноль, а в случае ошибки -1. Расширенный код записывается в errno.
-
-
-
-
-
-
-
-
 
 
 
