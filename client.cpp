@@ -6,107 +6,132 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <arpa/inet.h>
 #include <iostream>
 #include <arpa/inet.h>
 #include <sys/time.h>
 #include <fcntl.h>
 #include <algorithm>
 #include <string>
+// #include "clients_structure.h"
+// #include "sockaddr_in.h"
+struct sockaddr_in addr;
+// functions
+void get_message();
+void connection(int *client_sock);
+void send_message();
+int maxfd();
 
+// vars
 #define STDIN 0
+int client_sock;    
+char buf_write[1000]; 
+int bytes_recv = 0;
+int bytes_send = 0;
+
 
 int main(int argc, char const *argv[])
 {
-    struct sockaddr_in client_addr;
-    client_addr.sin_family = AF_INET;
-    client_addr.sin_port = htons(atoi(argv[2])); 
-    inet_pton(AF_INET, argv[1], &client_addr.sin_addr);
+    if (argc < 2) {return 0;}
 
-    int sock_client;
-    sock_client = socket(AF_INET, SOCK_STREAM, 0);
-    if(sock_client < 0)
-    {
-        perror("socket");
-        exit(1);
-    }
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(atoi(argv[2])); 
+    inet_pton(AF_INET, argv[1], &addr.sin_addr);
 
-    std::cout << "=> Awaiting confirmation from the server..." << std::endl;   
-
-    if(connect(sock_client, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0)
-    {
-        perror("connect");
-        exit(2);
-    }
-
-    char *server_connected = new char[23];     
-    if (recv(sock_client, server_connected, 23, 0) < 0)    {
-        // error("Error on reading");
-    }
-    std::cout << server_connected;
-
-    fcntl(sock_client, F_SETFL, O_NONBLOCK);    
+    connection(&client_sock);
 
     while (1)
-    {
-        char buf_write[1000];
-        int bytes_recv = 0;
-
-        
-
+    {   
         fd_set fds;
         FD_ZERO(&fds);
-        FD_SET(sock_client, &fds); 
-        FD_SET(STDIN, &fds); 
-
-        int maxfd;
-        maxfd = (sock_client > STDIN) ? sock_client : STDIN;    
-        if (select(maxfd+1, &fds, NULL, NULL, NULL) <= 0)
+        FD_SET(client_sock, &fds); 
+        FD_SET(STDIN, &fds);         
+            
+        if (select(maxfd(), &fds, NULL, NULL, NULL) <= 0)
         {
             perror("select");
             exit(3);
         }  
 
         if (FD_ISSET(STDIN, &fds)){
-            char *buf_send = new char();
-            int sizeof_buf_send = 0;
-
-            std::cin.getline(buf_write, 1000);
-
-            for (int i = 0; buf_write[i]; i++)
-            {
-                buf_send[i] = buf_write[i];
-                sizeof_buf_send++;                        
-            }  
-        
-            send(sock_client, buf_send, sizeof_buf_send, 0);
-
-            delete[] buf_send;
-            continue;
+            send_message();
         }
 
-        if (FD_ISSET(sock_client, &fds)){  
-
-            char *buf_recover = new char();  
-
-            if ((bytes_recv = recv(sock_client, buf_write, 1000, 0)) <= 0)
-            {
-                close(sock_client);
-                std::cout << "Server is closed" << std::endl;   
-                break;       
-            }     
-
-            for (int i = 0; i < bytes_recv; i++)
-            {
-                buf_recover[i] = buf_write[i];       
-            }   
-            buf_recover[bytes_recv] = '\0';
-            std::cout << "server : " << buf_recover << std::endl;
+        if (FD_ISSET(client_sock, &fds)){
+            std::cout << "server : ";
+            get_message();
+            std::cout << std::endl;
+            if (bytes_recv <= 0) {break;}
             
-            delete[] buf_recover; 
-            continue;       
         }
     }    
-    close(sock_client); 
+    close(client_sock);
     return 0;
 }
+
+
+
+void connection(int *client_sock) {   
+    // socket()
+    *client_sock = socket(AF_INET, SOCK_STREAM, 0);
+    if(client_sock < 0)
+    {
+        perror("socket");
+        exit(1);
+    }
+
+    // connect()
+    std::cout << "=> Awaiting confirmation from the server..." << std::endl;   
+
+    if(connect(*client_sock, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+    {
+        perror("connect");
+        exit(2);
+    } 
+
+    get_message();
+}
+
+void get_message() { 
+    bytes_recv = recv(client_sock, buf_write, sizeof(buf_write), 0);
+    if (bytes_recv <= 0)  {
+        // error("Error on reading");
+        close(client_sock);
+        std::cout << "connection closed" << std::endl; 
+    }   
+    char *message = new char[bytes_recv];  
+    for (int i = 0; i < bytes_recv; i++)
+    {
+        message[i] = buf_write[i];
+    }
+    message[bytes_recv] = '\0';
+    std::cout << message;
+    delete [] message;
+}
+
+void send_message() { 
+    std::cin.getline(buf_write, 1000);
+    bytes_send = 0;
+    for (int i = 0; buf_write[i]; i++)
+    {
+        bytes_send++;
+    }
+    char *message = new char[bytes_send];
+    for (int i = 0; i < bytes_send; i++)
+    {
+        message[i] = buf_write[i];                      
+    }
+    message[bytes_send] == '\0'; 
+    send(client_sock, message, bytes_send, 0);
+    delete[] message; 
+}
+
+int maxfd() {
+    return ((client_sock > STDIN) ? client_sock : STDIN) + 1;
+}
+
+
+
+
+
+
+

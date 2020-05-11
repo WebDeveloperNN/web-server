@@ -12,133 +12,168 @@
 #include <fcntl.h>
 #include <set>
 #include <algorithm>
+// #include "clients_structure.h"
+// #include "sockaddr_in.h"
+
+//functions 
+void send_message(int *socket, int status = 0);
+void get_message(int *socket, int status = 0);
+void connection(int *listen_socket);
+int maxfd();
+
+// vars
+struct sockaddr_in server_addr;
+int listen_socket;
+char buf_write[1000]; 
+int bytes_recv = 0; // = bytes_recv in send_message()
+int client_socket;    
+std::set<int> clients;
+char **temp;
+
 
 int main(int argc, char const *argv[])
 {
+    // вынести
+    // if argc < 2 то адрес loopback, порт случайный, если больше 2, то код ниже
     if (argc < 2) {return 0;}  
-
-    struct sockaddr_in server_addr;
+    
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(atoi(argv[2])); 
     inet_pton(AF_INET, argv[1], &server_addr.sin_addr);
 
-    int listen_socket_onServer = socket(AF_INET, SOCK_STREAM, 0);
-    if(listen_socket_onServer < 0)
-    {
-        perror("socket");
-        exit(1);
-    }
-    
-    fcntl(listen_socket_onServer, F_SETFL, O_NONBLOCK);
-
-    if(bind(listen_socket_onServer, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
-    {
-        perror("bind");
-        exit(2);
-    }
-
-    listen(listen_socket_onServer, 10);   
-
-    int bytes_read;
-    int connection_socket;    
-    std::set<int> clients;
-    clients.clear();
+    connection(&listen_socket);
 
     while(1)
     { 
-        // int sizeof_buf_send = 0;
-        int bytes_recv = 0;
-
         fd_set readset;    
         FD_ZERO(&readset);
-        FD_SET(listen_socket_onServer, &readset);
+        FD_SET(listen_socket, &readset);
 
-        for(std::set<int>::iterator it = clients.begin(); it != clients.end(); it++) {
+        for(auto it = clients.begin(); it != clients.end(); it++) {
             FD_SET(*it, &readset);
-        }     
-
-        int mx = std::max(listen_socket_onServer, *max_element(clients.begin(), clients.end()));
+        }    
         
-        if(select(mx+1, &readset, NULL, NULL, NULL) <= 0)
+        if(select(maxfd(), &readset, NULL, NULL, NULL) <= 0)
         {
             perror("select"); 
             exit(3);
         }
 
-        if(FD_ISSET(listen_socket_onServer, &readset))
+        if(FD_ISSET(listen_socket, &readset))
         {     
-            char *buf_send = new char();
-            char *buf_write = new char[1000]; 
-            std::string info_connect = "=> Server connected...\n";
-            
-            int connection_socket = accept(listen_socket_onServer, NULL, NULL);
-            if(connection_socket < 0)
-            {
-                perror("accept");
-                exit(3);
-            }
-            
-            fcntl(connection_socket, F_SETFL, O_NONBLOCK);
-            
-            clients.insert(connection_socket); 
-          
-            for (int i = 0; info_connect[i]; i++)
-            {
-                buf_send[i] = info_connect[i]; 
-              
-            }
-            send(connection_socket, buf_send, 23, 0);
-
-            
-            std::cout << "=> Connected with the client" << std::endl;
-
-            delete [] buf_send;
-            delete [] buf_write;
+            get_message(&listen_socket, 3);
         }
         
-        for(std::set<int>::iterator it = clients.begin(); it != clients.end(); it++)
-        {
-            char *buf_write = new char[1000];
-            char *buf_send = new char(); 
 
+        for(auto it = clients.begin(); it != clients.end(); it++)
+        {   
+            int  temp = *it;
             if(FD_ISSET(*it, &readset))
-            {       
-                if((bytes_recv = recv(*it, buf_write, 1000, 0)) <= 0)
-                {
-                    close(*it);
-                    clients.erase(*it);
-                    std::cout << "=> Client disconnected" << std::endl;
-                    delete [] buf_send;
-                    continue;
-                }
-
-                for (int i = 0; i < bytes_recv; i++)
-                {
-                    buf_send[i] = buf_write[i];
-                }              
-                buf_send[bytes_recv] = buf_write[bytes_recv];
-
-                for(std::set<int>::iterator it_inner = clients.begin(); it_inner != clients.end(); it_inner++) 
-                {
-                    send(*it_inner, buf_send, bytes_recv, 0);
-                }
-
-                delete [] buf_send;
-                delete [] buf_write;
+            {   
+                get_message(&temp);
             }            
             
-        }
-        
+        }        
     }  
-    
-    
-    close(listen_socket_onServer);
+        
+    close(listen_socket);
 
     return 0;
 }
 
 
 
+
+
+
+// connection
+void connection(int *listen_socket) { 
+
+    // socket()
+    *listen_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if(*listen_socket < 0)
+    {
+        perror("socket");
+        exit(1);
+    }
+    
+    fcntl(*listen_socket, F_SETFL, O_NONBLOCK);
+
+    // bind()
+    if(bind(*listen_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    {
+        perror("bind");
+        exit(2);
+    }
+
+    // listen
+    listen(*listen_socket, 10);
+}
+
+
+
+
+
+// get_message
+void get_message(int *socket, int status) { 
+   
+    if (status == 3)
+    {
+        // connect with the client
+        int client_socket = accept(listen_socket, NULL, NULL);
+        if(client_socket < 0)
+        {
+            perror("accept");
+            exit(3);
+        }
+        fcntl(client_socket, F_SETFL, O_NONBLOCK);
+        clients.insert(client_socket); 
+        send_message(&client_socket, 3);        
+        std::cout << "=> Connected with the client" << std::endl;
+    } else {
+        bytes_recv = recv(*socket, buf_write, sizeof(buf_write), 0);
+        if (bytes_recv <= 0)  {
+            close(*socket);
+            clients.erase(*socket);
+            std::cout << "=> Client disconnected" << std::endl;
+        }  
+        char *message = new char[bytes_recv];
+        for (int i = 0; i < bytes_recv; i++)
+        {
+            message[i] = buf_write[i];                      
+        }
+        message[bytes_recv] == '\0';
+        temp = &message;
+        send_message(socket);
+        delete [] message;
+    }   
+}
+
+
+
+
+
+// send_message
+void send_message(int *socket, int status) {
+    if (status == 3)
+    {
+        char server_connected_message[] = "=> Server connected...\n";
+        send(*socket, server_connected_message, sizeof(server_connected_message), 0);
+    } else {       
+        for(auto it = clients.begin(); it != clients.end(); it++)
+        {
+            send(*it, *temp, bytes_recv, 0);
+        }
+    }     
+
+}
+
+
+
+// maximum
+int maxfd() {
+    return (std::max(listen_socket, *max_element(clients.begin(), clients.end()))+1);
+}
 
 
 
